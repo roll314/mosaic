@@ -1,5 +1,5 @@
-import { Component, NgModule, ViewEncapsulation } from '@angular/core';
-import { FormsModule } from '@angular/forms';
+import { Component, forwardRef, NgModule, StaticProvider, ViewEncapsulation } from '@angular/core';
+import { FormsModule, NG_VALIDATORS, NgForm, RequiredValidator } from '@angular/forms';
 import { BrowserModule } from '@angular/platform-browser';
 import { platformBrowserDynamic } from '@angular/platform-browser-dynamic';
 import { McButtonModule } from '@ptsecurity/mosaic/button';
@@ -19,6 +19,13 @@ export class InputDemoComponent {
     value: string = '';
     numberValue: number | null = null;
     min = -5;
+    value2: any;
+    value3: any;
+    value4: any;
+
+    onSubmit(form: NgForm) {
+        console.log('onSubmit form: ', form);
+    }
 }
 
 

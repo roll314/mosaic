@@ -1,14 +1,16 @@
 import { coerceBooleanProperty } from '@angular/cdk/coercion';
 import { getSupportedInputTypes, Platform } from '@angular/cdk/platform';
 import {
+    AfterContentInit,
     Attribute,
-    Directive, DoCheck, ElementRef, Inject, Input, OnChanges,
-    OnDestroy, Optional, Self
+    Directive, DoCheck, ElementRef, forwardRef, Inject, Input, OnChanges,
+    OnDestroy, Optional, Self, StaticProvider
 } from '@angular/core';
 import {
-    FormGroupDirective,
-    NgControl,
-    NgForm, NgModel
+    AbstractControl,
+    FormGroupDirective, MinLengthValidator, NG_VALIDATORS,
+    NgControl, NgControlStatus,
+    NgForm, NgModel, RequiredValidator, ValidationErrors, Validator, Validators
 } from '@angular/forms';
 import {
     END, C, V, X, A, DELETE, BACKSPACE, TAB, ENTER,
@@ -22,6 +24,9 @@ import {
     mixinErrorState
 } from '@ptsecurity/mosaic/core';
 import { McFormFieldControl, McFormFieldNumberControl } from '@ptsecurity/mosaic/form-field';
+import { McRequiredValidator } from '@ptsecurity/mosaic/input/input.module';
+import { McTreeSelection } from '@ptsecurity/mosaic/tree';
+import { logFactory } from 'dgeni/lib/util/log';
 import { Subject } from 'rxjs';
 
 import { getMcInputUnsupportedTypeError } from './input-errors';
@@ -253,14 +258,16 @@ export class McNumberInput implements McFormFieldNumberControl<any> {
         '[attr.placeholder]': 'placeholder',
         '[disabled]': 'disabled',
         '[required]': 'required',
-        '(blur)': '_focusChanged(false)',
+        '(blur)': 'onBlur()',
         '(focus)': '_focusChanged(true)',
         '(input)': '_onInput()'
     },
-    providers: [{ provide: McFormFieldControl, useExisting: McInput }]
+    providers: [
+        { provide: McFormFieldControl, useExisting: McInput }
+    ]
 })
-export class McInput extends _McInputMixinBase implements McFormFieldControl<any>, OnChanges,
-    OnDestroy, DoCheck, CanUpdateErrorState {
+export class McInput extends _McInputMixinBase implements McFormFieldControl<any>, OnChanges, OnDestroy, DoCheck,
+    CanUpdateErrorState {
 
     /** An object used to control when error messages are shown. */
     @Input() errorStateMatcher: ErrorStateMatcher;
@@ -392,13 +399,43 @@ export class McInput extends _McInputMixinBase implements McFormFieldControl<any
 
     private _inputValueAccessor: { value: any };
 
-    constructor(protected _elementRef: ElementRef,
-                @Optional() @Self() public ngControl: NgControl,
-                @Optional() parentForm: NgForm,
-                @Optional() parentFormGroup: FormGroupDirective,
-                defaultErrorStateMatcher: ErrorStateMatcher,
-                @Optional() @Self() @Inject(MC_INPUT_VALUE_ACCESSOR) inputValueAccessor: any) {
+    constructor(
+        protected _elementRef: ElementRef,
+        @Inject(NG_VALIDATORS) private validators: Validator[],
+        @Optional() @Self() public ngControl: NgControl,
+        @Optional() parentForm: NgForm,
+        @Optional() parentFormGroup: FormGroupDirective,
+        defaultErrorStateMatcher: ErrorStateMatcher,
+        @Optional() @Self() @Inject(MC_INPUT_VALUE_ACCESSOR) inputValueAccessor: any
+    ) {
         super(defaultErrorStateMatcher, parentForm, parentFormGroup, ngControl);
+
+        if (this.parentForm) {
+            this.parentForm.ngSubmit.subscribe(() => {
+                // tslint:disable-next-line: no-unnecessary-type-assertion
+                this.ngControl!.control!.updateValueAndValidity();
+            });
+        }
+
+        validators.forEach((validator: Validator) => {
+            // tslint:disable-next-line: no-unbound-method
+            const originalValidate = validator.validate;
+
+            if (validator instanceof RequiredValidator) {
+                validator.validate = (control: AbstractControl): ValidationErrors | null => {
+                    if (this.parentForm && !this.parentForm.submitted) { return null; }
+
+                    return originalValidate.call(validator, control);
+                };
+            }  else {
+                validator.validate = (control: AbstractControl): ValidationErrors | null => {
+                    if (this.focused && control.untouched) { return null; }
+
+                    return originalValidate.call(validator, control);
+                };
+            }
+        });
+
         // If no input value accessor was explicitly specified, use the element as the input value
         // accessor.
         this._inputValueAccessor = inputValueAccessor || this._elementRef.nativeElement;
@@ -434,6 +471,12 @@ export class McInput extends _McInputMixinBase implements McFormFieldControl<any
     /** Focuses the input. */
     focus(): void {
         this._elementRef.nativeElement.focus();
+    }
+
+    onBlur(): void {
+        this._focusChanged(false);
+
+        this.ngControl!.control!.updateValueAndValidity();
     }
 
     /** Callback for the cases where the focused state of the input changes. */
